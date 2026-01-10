@@ -1,6 +1,7 @@
 { config, lib, ... }:
 let
-  syscryptDepl = lib.mkIf config.users.users ? syscrypt {
+  hasSyscrypt = config.users.users ? syscrypt;
+  syscryptDepl = lib.mkIf hasSyscrypt {
     systemd.tmpfiles.rules = [
       "d /home/syscrypt/.ssh 0700 syscrypt users -"
     ];

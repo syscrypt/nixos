@@ -4,11 +4,12 @@
 {
   imports = [
     # Desktop stack
+    inputs.disko.nixosModules.disko
     inputs.sops-nix.nixosModules.sops
     inputs.home-manager.nixosModules.home-manager
 
     # Shared system modules
-    ../modules/nixos/base.nix
+    ../modules/nixos/common.nix
   ];
 
   home-manager.useGlobalPkgs = true;

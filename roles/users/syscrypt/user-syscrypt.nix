@@ -1,6 +1,7 @@
 { pkgs, ... }:
 {
-  users.mutableUsers = false;
+  # TODO: Change later and set password
+  users.mutableUsers = true;
 
   users.users.syscrypt = {
     isNormalUser = true;

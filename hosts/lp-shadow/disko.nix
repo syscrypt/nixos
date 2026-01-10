@@ -26,14 +26,14 @@
               type = "luks";
               name = "crypted";
 
-              passwordFile = "vault/lp-shadow-enc.key";
+              passwordFile = "/tmp/disk-encryption.key";
 
               settings = {
                 allowDiscards = true;
               };
 
               content = {
-                type = "ext4";
+                type = "btrfs";
                 extraArgs = [ "-f" ];
                 subvolumes = {
                   "/root" = {

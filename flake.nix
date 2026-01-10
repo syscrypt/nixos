@@ -29,7 +29,7 @@
     in
     {
       nixosConfigurations = {
-        lpLaptop = mkHost "lp-laptop";
+        lp-shadow = mkHost "lp-shadow";
       };
     };
 }
