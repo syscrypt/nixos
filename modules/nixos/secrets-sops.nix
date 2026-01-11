@@ -2,7 +2,7 @@
 {
   sops.defaultSopsFormat = "yaml";
   sops.defaultSopsFile = ../../secrets.yaml;
-  sops.age.keyFile = "../../vault/vault.key";
+  sops.age.keyFile = "/var/lib/sops-nix/vault.key";
 
   sops.secrets.desktop_user_syscrypt_password = {
     owner = "root";

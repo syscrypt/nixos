@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-export SOPS_AGE_KEY_FILE="$(pwd)/vault/vault.key"
 
 # ------------------------------------------------------------------------------
 # nixos-anywhere deploy helper (multi-host)
@@ -12,6 +11,13 @@ export SOPS_AGE_KEY_FILE="$(pwd)/vault/vault.key"
 # - Supports LUKS passphrase via file or interactive prompt
 # - Always enables nix-command + flakes for the *local* nix invocation
 # - Nice logging helpers: info/warn/error
+#
+# Custom additions:
+# - Default extra-files staging dir: /tmp/nix
+# - Copies vault/vault.key -> <extra-files>/var/lib/sops-nix/vault.key (0400)
+# - Safe cleanup for the default /tmp/nix staging dir:
+#   * If /tmp/nix already existed and had content, we move it aside and restore it
+#     after the run, so we never delete/overwrite unrelated files.
 # ------------------------------------------------------------------------------
 
 # --- colors (auto-disable if not a TTY or NO_COLOR is set) ---------------------
@@ -53,6 +59,14 @@ Options:
   --no-stub-hwcfg        Do not create a stub hardware-configuration.nix if missing
   --dry-run              Print the nixos-anywhere command without running it
   -h, --help             Show help
+
+Notes:
+  - If --extra-files is NOT provided, this script stages to /tmp/nix by default,
+    and safely restores any pre-existing contents afterwards.
+  - The vault key is always staged to:
+      <extra-files>/var/lib/sops-nix/vault.key
+    so your NixOS config should use:
+      sops.age.keyFile = "/var/lib/sops-nix/vault.key";
 
 Examples:
   scripts/deploy.sh --host laptop  --target nixos@192.168.1.50
@@ -134,6 +148,13 @@ EXTRA_FILES_DIR=""   # if set -> used directly (no temp copy)
 
 LUKS_KEY_FILE=""     # if empty -> prompt -> temp file
 
+# Default staging directory (what you called "$temp")
+DEFAULT_TEMP_DIR="/tmp/nix"
+
+# Vault key staging (source in repo -> destination in extra-files)
+VAULT_KEY_SRC="${REPO_ROOT}/vault/vault.key"
+VAULT_KEY_DEST_REL="var/lib/sops-nix/vault.key"
+
 # --- parse args ----------------------------------------------------------------
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -170,12 +191,53 @@ HW_CFG="${HOST_DIR}/hardware-configuration.nix"
 [[ -d "$HOST_DIR" ]] || die "Host directory not found: ${HOST_DIR}"
 
 # --- temp management -----------------------------------------------------------
-TMP_EXTRA_DIR=""
 TMP_LUKS_FILE=""
 
+# For safe cleanup of the default /tmp/nix staging dir
+MANAGE_DEFAULT_TEMP_DIR=0
+TEMP_DIR_PREEXIST=0
+TEMP_DIR_BACKUP=""
+
 cleanup() {
-  [[ -n "$TMP_EXTRA_DIR" && -d "$TMP_EXTRA_DIR" ]] && rm -rf "$TMP_EXTRA_DIR"
+  # Remove temporary LUKS file (if we created one)
   [[ -n "$TMP_LUKS_FILE" && -f "$TMP_LUKS_FILE" ]] && rm -f "$TMP_LUKS_FILE"
+
+  # Safely clean /tmp/nix only if we were managing it (default path, not user-supplied)
+  if [[ "$MANAGE_DEFAULT_TEMP_DIR" -eq 1 ]]; then
+    # Safety guards
+    if [[ -z "${FINAL_EXTRA_DIR:-}" ]]; then
+      warn "Cleanup: FINAL_EXTRA_DIR not set; skipping staging cleanup."
+      return 0
+    fi
+    if [[ "$FINAL_EXTRA_DIR" != "$DEFAULT_TEMP_DIR" ]]; then
+      warn "Cleanup: FINAL_EXTRA_DIR is not the default (${DEFAULT_TEMP_DIR}); skipping staging cleanup."
+      return 0
+    fi
+    if [[ ! -d "$FINAL_EXTRA_DIR" || -L "$FINAL_EXTRA_DIR" ]]; then
+      warn "Cleanup: staging dir missing or is a symlink; skipping staging cleanup: $FINAL_EXTRA_DIR"
+      return 0
+    fi
+
+    # Remove everything we staged into /tmp/nix
+    shopt -s dotglob nullglob
+    rm -rf "${FINAL_EXTRA_DIR:?}/"*
+    shopt -u dotglob nullglob
+
+    # Restore any previous contents if we moved them aside
+    if [[ -n "$TEMP_DIR_BACKUP" && -d "$TEMP_DIR_BACKUP" ]]; then
+      shopt -s dotglob nullglob
+      for item in "$TEMP_DIR_BACKUP"/*; do
+        mv "$item" "$FINAL_EXTRA_DIR"/
+      done
+      shopt -u dotglob nullglob
+      rmdir "$TEMP_DIR_BACKUP" 2>/dev/null || true
+    fi
+
+    # If /tmp/nix didn't exist before and is empty now, remove it
+    if [[ "$TEMP_DIR_PREEXIST" -eq 0 ]]; then
+      rmdir "$FINAL_EXTRA_DIR" 2>/dev/null || true
+    fi
+  fi
 }
 trap cleanup EXIT
 
@@ -183,6 +245,11 @@ info "Repo root : $REPO_ROOT"
 info "Flake path: $FLAKE_PATH"
 info "Host      : $HOST"
 info "Target    : $TARGET"
+
+# Ensure local sops tooling (if invoked) uses the repo key, regardless of CWD
+[[ -f "$VAULT_KEY_SRC" ]] || die "Vault key not found: ${VAULT_KEY_SRC}"
+export SOPS_AGE_KEY_FILE="$VAULT_KEY_SRC"
+info "SOPS_AGE_KEY_FILE: $SOPS_AGE_KEY_FILE"
 
 # --- ensure hardware-configuration.nix exists (stub if needed) ----------------
 if [[ ! -f "$HW_CFG" ]]; then
@@ -202,8 +269,42 @@ if [[ -n "$EXTRA_FILES_DIR" ]]; then
   FINAL_EXTRA_DIR="$EXTRA_FILES_DIR"
   info "Using --extra-files directory as-is: ${FINAL_EXTRA_DIR}"
 else
-  TMP_EXTRA_DIR="$(mktemp -d)"
-  FINAL_EXTRA_DIR="$TMP_EXTRA_DIR"
+  FINAL_EXTRA_DIR="$DEFAULT_TEMP_DIR"
+  MANAGE_DEFAULT_TEMP_DIR=1
+  info "Using default --extra-files directory: ${FINAL_EXTRA_DIR}"
+
+  if [[ -e "$FINAL_EXTRA_DIR" && ! -d "$FINAL_EXTRA_DIR" ]]; then
+    die "Default staging path exists but is not a directory: $FINAL_EXTRA_DIR"
+  fi
+  if [[ -L "$FINAL_EXTRA_DIR" ]]; then
+    die "Refusing to use a symlink as staging directory: $FINAL_EXTRA_DIR"
+  fi
+
+  if [[ -d "$FINAL_EXTRA_DIR" ]]; then
+    TEMP_DIR_PREEXIST=1
+  else
+    mkdir -p "$FINAL_EXTRA_DIR"
+    TEMP_DIR_PREEXIST=0
+  fi
+
+  # If /tmp/nix already contains stuff, move it aside and restore later.
+  # This prevents accidental overwrites AND prevents stale files from being shipped via --extra-files.
+  shopt -s dotglob nullglob
+  existing_items=( "$FINAL_EXTRA_DIR"/* )
+  shopt -u dotglob nullglob
+
+  if (( ${#existing_items[@]} > 0 )); then
+    TEMP_DIR_BACKUP="$(mktemp -d "${DEFAULT_TEMP_DIR%/*}/nixos-anywhere-extra-backup.XXXXXX")"
+    info "Default staging dir is not empty; moving existing contents aside:"
+    info "  from: $FINAL_EXTRA_DIR"
+    info "  to  : $TEMP_DIR_BACKUP"
+
+    shopt -s dotglob nullglob
+    for item in "$FINAL_EXTRA_DIR"/*; do
+      mv "$item" "$TEMP_DIR_BACKUP"/
+    done
+    shopt -u dotglob nullglob
+  fi
 
   if [[ -z "$EXTRA_FILES_SRC" ]]; then
     EXTRA_FILES_SRC="${REPO_ROOT}/extra-files/${HOST}"
@@ -221,6 +322,12 @@ else
     info "No extra-files source found (ok): ${EXTRA_FILES_SRC}"
   fi
 fi
+
+# Always stage the vault key into the extra-files tree
+info "Staging vault key into --extra-files:"
+info "  src : ${VAULT_KEY_SRC}"
+info "  dest: ${FINAL_EXTRA_DIR}/${VAULT_KEY_DEST_REL}"
+install -D -m0400 "$VAULT_KEY_SRC" "${FINAL_EXTRA_DIR}/${VAULT_KEY_DEST_REL}"
 
 # --- LUKS key handling ---------------------------------------------------------
 FINAL_LUKS_FILE="$LUKS_KEY_FILE"
