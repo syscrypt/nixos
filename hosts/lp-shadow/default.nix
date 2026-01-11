@@ -13,4 +13,6 @@
 
   home-manager.users.syscrypt = import ../../modules/home/syscrypt.nix;
   home-manager.extraSpecialArgs = { inherit inputs; };
+
+  features.openssh.enable = false;
 }
