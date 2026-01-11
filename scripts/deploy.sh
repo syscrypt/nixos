@@ -15,6 +15,9 @@ set -euo pipefail
 # Custom additions:
 # - Default extra-files staging dir: /tmp/nix
 # - Copies vault/vault.key -> <extra-files>/var/lib/sops-nix/vault.key (0400)
+# - Overlays (appends) vault/extra/<profile>/extra-files/ into the final --extra-files tree
+#   (applied after host extra-files, so it can override if paths collide).
+# - SOPS key under vault/vault.key is a HARD REQUIREMENT (script fails if missing).
 # - Safe cleanup for the default /tmp/nix staging dir:
 #   * If /tmp/nix already existed and had content, we move it aside and restore it
 #     after the run, so we never delete/overwrite unrelated files.
@@ -53,6 +56,8 @@ Options:
   --flake PATH           Flake path (default: repo root)
   --extra-files-src DIR  Directory to stage into --extra-files (default: ./extra-files/<host>)
   --extra-files DIR      Use this directory directly as --extra-files (no temp copy)
+  --vault-profile NAME   Overlay vault/extra/<NAME>/extra-files/ into --extra-files
+                         (default: $VAULT_PROFILE env var, else "desktop")
   --luks-key-file PATH   File containing the LUKS passphrase (if omitted, prompt)
   --target-luks-path P   Target path referenced by disko passwordFile (default: /tmp/disk-encryption.key)
   --no-disk-keys         Skip --disk-encryption-keys entirely
@@ -63,15 +68,22 @@ Options:
 Notes:
   - If --extra-files is NOT provided, this script stages to /tmp/nix by default,
     and safely restores any pre-existing contents afterwards.
-  - The vault key is always staged to:
+  - The SOPS age key is a hard requirement and is always staged to:
       <extra-files>/var/lib/sops-nix/vault.key
     so your NixOS config should use:
       sops.age.keyFile = "/var/lib/sops-nix/vault.key";
+  - Additionally, if present, this script overlays:
+      <repo>/vault/extra/<profile>/extra-files/
+    into the final --extra-files tree (after host extra-files).
 
 Examples:
   scripts/deploy.sh --host laptop  --target nixos@192.168.1.50
   scripts/deploy.sh --host serverA --target nixos@10.0.0.12 --no-disk-keys
   scripts/deploy.sh --host laptop  --target nixos@192.168.1.50 --luks-key-file ./keys/laptop.key
+
+  # Choose vault profile
+  scripts/deploy.sh --host laptop --target nixos@192.168.1.50 --vault-profile desktop
+  VAULT_PROFILE=server scripts/deploy.sh --host serverA --target nixos@10.0.0.12
 EOF
 }
 
@@ -130,6 +142,23 @@ resolve_path() {
   return 0
 }
 
+# Copy/overlay a source directory into a destination directory.
+# Uses rsync if available, otherwise cp -a.
+stage_dir() {
+  local src="$1"
+  local dst="$2"
+
+  [[ -d "$src" ]] || die "stage_dir: source is not a directory: $src"
+  [[ -d "$dst" ]] || die "stage_dir: destination is not a directory: $dst"
+
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a "${src}/" "${dst}/"
+  else
+    warn "rsync not found; falling back to cp -a"
+    cp -a "${src}/." "${dst}/"
+  fi
+}
+
 # --- defaults -----------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -146,9 +175,14 @@ DRY_RUN=0
 EXTRA_FILES_SRC=""   # if empty -> $REPO_ROOT/extra-files/$HOST
 EXTRA_FILES_DIR=""   # if set -> used directly (no temp copy)
 
+# Vault profile selection:
+# - default from env VAULT_PROFILE
+# - otherwise default to "desktop"
+VAULT_PROFILE="${VAULT_PROFILE:-desktop}"
+
 LUKS_KEY_FILE=""     # if empty -> prompt -> temp file
 
-# Default staging directory (what you called "$temp")
+# Default staging directory
 DEFAULT_TEMP_DIR="/tmp/nix"
 
 # Vault key staging (source in repo -> destination in extra-files)
@@ -163,6 +197,7 @@ while [[ $# -gt 0 ]]; do
     --flake) FLAKE_PATH="${2:-}"; shift 2 ;;
     --extra-files-src) EXTRA_FILES_SRC="${2:-}"; shift 2 ;;
     --extra-files) EXTRA_FILES_DIR="${2:-}"; shift 2 ;;
+    --vault-profile) VAULT_PROFILE="${2:-}"; shift 2 ;;
     --luks-key-file) LUKS_KEY_FILE="${2:-}"; shift 2 ;;
     --target-luks-path) TARGET_LUKS_PATH="${2:-}"; shift 2 ;;
     --no-disk-keys) NO_DISK_KEYS=1; shift ;;
@@ -175,6 +210,8 @@ done
 
 [[ -n "$HOST" ]]   || die "Missing --host (try --help)"
 [[ -n "$TARGET" ]] || die "Missing --target (try --help)"
+
+[[ -n "$VAULT_PROFILE" ]] || die "Vault profile is empty (use --vault-profile or set VAULT_PROFILE)."
 
 need_cmd nix
 need_cmd mktemp
@@ -189,6 +226,8 @@ HOST_DIR="${FLAKE_PATH}/hosts/${HOST}"
 HW_CFG="${HOST_DIR}/hardware-configuration.nix"
 
 [[ -d "$HOST_DIR" ]] || die "Host directory not found: ${HOST_DIR}"
+
+VAULT_PROFILE_EXTRA_FILES_SRC="${REPO_ROOT}/vault/extra/${VAULT_PROFILE}/extra-files"
 
 # --- temp management -----------------------------------------------------------
 TMP_LUKS_FILE=""
@@ -241,13 +280,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
-info "Repo root : $REPO_ROOT"
-info "Flake path: $FLAKE_PATH"
-info "Host      : $HOST"
-info "Target    : $TARGET"
+info "Repo root     : $REPO_ROOT"
+info "Flake path    : $FLAKE_PATH"
+info "Host          : $HOST"
+info "Target        : $TARGET"
+info "Vault profile : $VAULT_PROFILE"
+info "Vault overlay : $VAULT_PROFILE_EXTRA_FILES_SRC"
 
-# Ensure local sops tooling (if invoked) uses the repo key, regardless of CWD
-[[ -f "$VAULT_KEY_SRC" ]] || die "Vault key not found: ${VAULT_KEY_SRC}"
+# SOPS key is a hard requirement
+[[ -f "$VAULT_KEY_SRC" ]] || die "Vault key not found (hard requirement): ${VAULT_KEY_SRC}"
 export SOPS_AGE_KEY_FILE="$VAULT_KEY_SRC"
 info "SOPS_AGE_KEY_FILE: $SOPS_AGE_KEY_FILE"
 
@@ -267,7 +308,7 @@ fi
 if [[ -n "$EXTRA_FILES_DIR" ]]; then
   [[ -d "$EXTRA_FILES_DIR" ]] || die "--extra-files dir not found: $EXTRA_FILES_DIR"
   FINAL_EXTRA_DIR="$EXTRA_FILES_DIR"
-  info "Using --extra-files directory as-is: ${FINAL_EXTRA_DIR}"
+  info "Using --extra-files directory as-is (will overlay into it): ${FINAL_EXTRA_DIR}"
 else
   FINAL_EXTRA_DIR="$DEFAULT_TEMP_DIR"
   MANAGE_DEFAULT_TEMP_DIR=1
@@ -311,19 +352,28 @@ else
   fi
 
   if [[ -d "$EXTRA_FILES_SRC" ]]; then
-    info "Staging extra files from: ${EXTRA_FILES_SRC}"
-    if command -v rsync >/dev/null 2>&1; then
-      rsync -a "${EXTRA_FILES_SRC}/" "${FINAL_EXTRA_DIR}/"
-    else
-      warn "rsync not found; falling back to cp -a"
-      cp -a "${EXTRA_FILES_SRC}/." "${FINAL_EXTRA_DIR}/"
-    fi
+    info "Staging host extra files from: ${EXTRA_FILES_SRC}"
+    stage_dir "$EXTRA_FILES_SRC" "$FINAL_EXTRA_DIR"
   else
-    info "No extra-files source found (ok): ${EXTRA_FILES_SRC}"
+    info "No host extra-files source found (ok): ${EXTRA_FILES_SRC}"
   fi
 fi
 
-# Always stage the vault key into the extra-files tree
+# Overlay vault/extra/<profile>/extra-files into the final extra-files tree
+if [[ -e "$VAULT_PROFILE_EXTRA_FILES_SRC" && ! -d "$VAULT_PROFILE_EXTRA_FILES_SRC" ]]; then
+  die "Vault profile extra-files path exists but is not a directory: $VAULT_PROFILE_EXTRA_FILES_SRC"
+fi
+
+if [[ -d "$VAULT_PROFILE_EXTRA_FILES_SRC" ]]; then
+  info "Overlaying vault profile extra-files into --extra-files:"
+  info "  src : ${VAULT_PROFILE_EXTRA_FILES_SRC}"
+  info "  dest: ${FINAL_EXTRA_DIR}"
+  stage_dir "$VAULT_PROFILE_EXTRA_FILES_SRC" "$FINAL_EXTRA_DIR"
+else
+  info "No vault profile extra-files directory found (ok): ${VAULT_PROFILE_EXTRA_FILES_SRC}"
+fi
+
+# Always stage the vault key into the extra-files tree (do this last to ensure mode/contents)
 info "Staging vault key into --extra-files:"
 info "  src : ${VAULT_KEY_SRC}"
 info "  dest: ${FINAL_EXTRA_DIR}/${VAULT_KEY_DEST_REL}"

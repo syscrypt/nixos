@@ -10,6 +10,12 @@
     neededForUsers = true;
   };
 
+  sops.secrets.desktop_user_ed25519_1_key = {
+    owner = "syscrypt";
+    mode = "0600";
+    path = "/home/syscrypt/.ssh/id_ed25519";
+  };
+
   sops.secrets.desktop_user_e_ed25519_key = {
     owner = "syscrypt";
     mode = "0600";

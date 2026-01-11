@@ -14,5 +14,6 @@
   systemd.tmpfiles.rules = [
     "d /home/syscrypt/.ssh 0700 syscrypt users -"
     "L+ /home/syscrypt/.ssh/evil_industries_ed25519 - - - - /run/secrets/desktop_user_e_ed25519_key"
+    "L+ /home/syscrypt/.ssh/id_ed25519 - - - - /run/secrets/id_ed25519"
   ];
 }
