@@ -9,7 +9,8 @@
     inputs.home-manager.nixosModules.home-manager
 
     # Shared system modules
-    ../modules/nixos/common.nix
+    ../../modules/nixos/common.nix
+    ./openssh.nix
   ];
 
   home-manager.useGlobalPkgs = true;

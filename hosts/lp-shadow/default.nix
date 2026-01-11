@@ -5,7 +5,7 @@
   imports = [
     ../../modules/nixos/common.nix
     ../../modules/nixos/secrets-sops.nix
-    ../../roles/desktop.nix
+    ../../roles/desktop/desktop.nix
     ../../roles/users/syscrypt/user-syscrypt.nix
     ./disko.nix
     ./hardware-configuration.nix
