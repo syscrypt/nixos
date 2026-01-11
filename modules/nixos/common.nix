@@ -13,6 +13,7 @@
   environment.systemPackages = with pkgs; [
     git
     vim
+    openssh
   ];
 
   system.stateVersion = "25.11";

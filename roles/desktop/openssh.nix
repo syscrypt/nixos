@@ -8,6 +8,8 @@
   config.services.openssh = {
     enable = false;
 
+    startWhenNeeded = true;
+
     openFirewall = true;
 
     settings = {
