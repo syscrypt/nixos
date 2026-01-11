@@ -7,8 +7,8 @@ in
     lib.mkEnableOption "OpenSSH server (sshd)";
 
   config = lib.mkIf cfg.enable {
-    sops.secrets.desktop_user_e_ed25519_pub_key = {
-      path = "/etc/ssh/authorized_keys.d/evil_industries_ed25519.pub";
+    sops.secrets.desktop_authorized_keys = {
+      path = "/etc/ssh/authorized_keys.d/authorized_keys";
       mode = "0444";
     };
 
@@ -23,8 +23,8 @@ in
       };
 
       authorizedKeysFiles = [
-        ".ssh/authorized_keys"
-        "/etc/ssh/authorized_keys.d/%u"
+        "%h/.ssh/authorized_keys"
+        "/etc/ssh/authorized_keys.d/authorized_keys"
       ];
     };
   };
