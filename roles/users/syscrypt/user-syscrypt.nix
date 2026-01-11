@@ -1,15 +1,14 @@
-{ pkgs, ... }:
+{ pkgs, config, ... }:
 {
   # TODO: Change later and set password
-  users.mutableUsers = true;
+  users.mutableUsers = false;
 
   users.users.syscrypt = {
     isNormalUser = true;
     createHome = true;
     extraGroups = [ "wheel" "networkmanager" "docker" ];
     shell = pkgs.bashInteractive;
-    # Optional: set a password hash (recommended for immutable users):
-    # hashedPassword = "…";
+    hashedPasswordFile = config.sops.secrets.desktop_user_syscrypt_password.path;
   };
 
   systemd.tmpfiles.rules = [

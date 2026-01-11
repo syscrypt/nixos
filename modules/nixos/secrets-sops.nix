@@ -1,19 +1,18 @@
-{ config, lib, ... }:
-let
-  hasSyscrypt = config.users.users ? syscrypt;
-  syscryptDepl = lib.mkIf hasSyscrypt {
-    systemd.tmpfiles.rules = [
-      "d /home/syscrypt/.ssh 0700 syscrypt users -"
-    ];
-
-    sops.secrets.syscrypt_ssh_ed25519 = {
-      owner = "syscrypt";
-      mode = "0600";
-      path = "/home/syscrypt/.ssh/id_ed25519";
-    };
-  };
-in
+{ config, ... }:
 {
   sops.defaultSopsFormat = "yaml";
-  sops.age.keyFile = "vault/vault.key";
+  sops.defaultSopsFile = ../../secrets.yaml;
+  sops.age.keyFile = "../../vault/vault.key";
+
+  sops.secrets.desktop_user_syscrypt_password = {
+    owner = "root";
+    mode = "0400";
+    neededForUsers = true;
+  };
+
+  sops.secrets.desktop_user_e_ed25519_key = {
+    owner = "syscrypt";
+    mode = "0600";
+    path = "/home/syscrypt/.ssh/evil_industries_ed25519";
+  };
 }
