@@ -14,6 +14,8 @@
     git
     vim
     openssh
+    curl
+    wget
   ];
 
   system.stateVersion = "25.11";
