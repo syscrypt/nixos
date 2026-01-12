@@ -3,16 +3,16 @@
   networking.hostName = "lp-shadow";
 
   imports = [
+    inputs.home-manager.nixosModules.home-manager
+
     ../../modules/nixos/common.nix
-    ../../modules/nixos/secrets-sops.nix
-    ../../roles/desktop/desktop.nix
-    ../../roles/users/syscrypt/user-syscrypt.nix
+    ../../profiles/desktop/desktop.nix
+    ../../users/syscrypt/default.nix
+    ../../profiles/desktop/secrets-dev-sops.nix
+
     ./disko.nix
     ./hardware-configuration.nix
   ];
-
-  home-manager.users.syscrypt = import ../../modules/home/syscrypt.nix;
-  home-manager.extraSpecialArgs = { inherit inputs; };
 
   features.openssh.enable = false;
 }
