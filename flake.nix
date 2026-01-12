@@ -23,11 +23,13 @@
         system = "x86_64-linux";
         specialArgs = { inherit inputs; };
         modules = [
+          ./modules/home
           ./hosts/${hostname}
         ];
       };
     in
     {
+      homeManagerModules.default = ./modules/home;
       nixosConfigurations = {
         lp-shadow = mkHost "lp-shadow";
       };
