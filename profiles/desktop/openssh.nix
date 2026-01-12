@@ -7,9 +7,12 @@ in
     lib.mkEnableOption "OpenSSH server (sshd)";
 
   config = lib.mkIf cfg.enable {
-    sops.secrets.desktop_authorized_keys = {
-      path = "/etc/ssh/authorized_keys.d/authorized_keys";
-      mode = "0444";
+    sops.secrets = {
+      desktop_authorized_keys = {
+        sopsFile = ../../secrets/desktop-profile-dev.yaml;
+        path = "/etc/ssh/authorized_keys.d/authorized_keys";
+        mode = "0444";
+      };
     };
 
     services.openssh = {

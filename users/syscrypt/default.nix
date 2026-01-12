@@ -1,4 +1,4 @@
-{ inputs, ... }:
+{ ... }:
 {
   _module.args.user = "syscrypt";
 
@@ -7,5 +7,10 @@
     ./user.nix
   ];
 
-  home-manager.users.syscrypt = import ./home.nix;
+  home-manager.users.syscrypt = {
+    imports = [
+      ../default.nix
+      ./home.nix
+    ];
+  };
 }
