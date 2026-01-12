@@ -15,5 +15,8 @@
     useGlobalPkgs = true;
     useUserPackages = true;
     extraSpecialArgs = { inherit inputs; };
+    sharedModules = [
+      inputs.self.homeManagerModules.default
+    ];
   };
 }

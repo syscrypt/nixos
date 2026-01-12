@@ -1,15 +1,6 @@
-{ inputs, ... }:
+{ ... }:
 {
   imports = [
-    inputs.home-manager.nixosModules.home-manager {
-        home-manager.extraSpecialArgs = {inherit inputs;};
-        home-manager.useGlobalPkgs = true;
-        home-manager.useUserPackages = true;
-        home-manager.sharedModules = [
-          inputs.self.homeManagerModules.default
-        ];
-    }
-
     ../../modules/nixos/common.nix
     ../../profiles/desktop/desktop.nix
     ../../users/syscrypt/default.nix

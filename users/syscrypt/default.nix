@@ -8,5 +8,4 @@
   ];
 
   home-manager.users.syscrypt = import ./home.nix;
-  home-manager.extraSpecialArgs = { inherit inputs; };
 }
