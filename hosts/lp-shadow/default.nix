@@ -14,4 +14,5 @@
 
   features.openssh.enable = false;
   modules.tmux.enable = true;
+  modules.zsh.enable = true;
 }
