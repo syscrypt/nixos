@@ -16,6 +16,7 @@
     openssh
     curl
     wget
+    zsh
   ];
 
   system.stateVersion = "25.11";
